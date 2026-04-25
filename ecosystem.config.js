@@ -10,8 +10,9 @@ module.exports = {
       NODE_ENV: 'production',
       PORT:     3020,
     },
-    error_file: 'logs/payments-err.log',
-    out_file:   'logs/payments-out.log',
+    // Logs go to PM2 default paths (/root/.pm2/logs/forgerift-payments-{out,error}.log)
+    // so vps-control-mcp can read them via get_recent_errors / get_recent_output
+    // without needing EXTRA_READ_DIRS configuration.
     log_date_format: 'YYYY-MM-DD HH:mm:ss',
   }],
 };
