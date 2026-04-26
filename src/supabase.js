@@ -19,7 +19,7 @@ function generateToken() {
 
 /**
  * Map a Stripe lookup key to the plan slug stored in the customers table.
- * e.g. "vps-monthly" → "vps-control", "bundle-founder-monthly" → "bundle"
+ * e.g. "vps-monthly" â†’ "vps-control", "bundle-founder-monthly" â†’ "bundle"
  */
 function lookupKeyToPlan(lookupKey) {
   if (!lookupKey) return null;
@@ -149,6 +149,30 @@ async function getSubscriberByEmail(email) {
   return data;
 }
 
+
+/**
+ * Validate a license token against active subscription records.
+ * Used by local-terminal-mcp on startup to enforce subscription gating.
+ * Returns { valid: true, status, plan } or { valid: false, reason }.
+ */
+async function validateToken(token) {
+  if (!token || typeof token !== 'string') {
+    return { valid: false, reason: 'Missing token' };
+  }
+  const { data, error } = await supabase
+    .from('customers')
+    .select('status, plan')
+    .eq('token', token)
+    .is('deleted_at', null)
+    .in('status', ['active', 'trial', 'grace'])
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { valid: false, reason: 'Subscription not found or inactive' };
+  }
+  return { valid: true, status: data.status, plan: data.plan };
+}
 module.exports = {
   provisionSubscriber,
   startGracePeriod,

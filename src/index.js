@@ -12,12 +12,12 @@ const app    = express();
 const PORT   = process.env.PORT || 3020;
 
 // ---------------------------------------------------------------------------
-// Health check (no auth required — used by nginx upstream health checks)
+// Health check (no auth required Ã¢â‚¬â€ used by nginx upstream health checks)
 // ---------------------------------------------------------------------------
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'forgerift-payments' }));
 
 // ---------------------------------------------------------------------------
-// Stripe webhook — MUST receive raw body for signature verification
+// Stripe webhook Ã¢â‚¬â€ MUST receive raw body for signature verification
 // Do NOT use express.json() before this route.
 // ---------------------------------------------------------------------------
 app.post(
@@ -28,24 +28,24 @@ app.post(
 
     let event;
     try {
-      // Signature verification — prevents spoofed webhook payloads
+      // Signature verification Ã¢â‚¬â€ prevents spoofed webhook payloads
       event = stripe.webhooks.constructEvent(
         req.body,
         sig,
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      // Log the error type only — not the payload (may contain PII)
+      // Log the error type only Ã¢â‚¬â€ not the payload (may contain PII)
       console.error('[webhook] Signature verification failed:', err.message);
       return res.status(400).send('Webhook signature invalid');
     }
 
-    // Acknowledge immediately — Stripe retries if we don't respond within 30s
+    // Acknowledge immediately Ã¢â‚¬â€ Stripe retries if we don't respond within 30s
     res.json({ received: true });
 
     // Process asynchronously so slow DB/email calls don't affect Stripe's timeout
     handleEvent(event).catch(err => {
-      // Log event type + ID only — never log raw event data (contains customer PII)
+      // Log event type + ID only Ã¢â‚¬â€ never log raw event data (contains customer PII)
       console.error(`[webhook] Handler error for ${event.type} / ${event.id}:`, err.message);
     });
   }
@@ -61,7 +61,7 @@ async function handleEvent(event) {
   switch (type) {
 
     // -------------------------------------------------------------------------
-    // New subscription — provision token and send welcome email
+    // New subscription Ã¢â‚¬â€ provision token and send welcome email
     // -------------------------------------------------------------------------
     case 'checkout.session.completed': {
       const session = event.data.object;
@@ -104,8 +104,8 @@ async function handleEvent(event) {
     }
 
     // -------------------------------------------------------------------------
-    // Trial ending in 3 days — Stripe sends this automatically if configured
-    // (optional: set up in Stripe Dashboard → Billing → Subscriptions → Trial reminder)
+    // Trial ending in 3 days Ã¢â‚¬â€ Stripe sends this automatically if configured
+    // (optional: set up in Stripe Dashboard Ã¢â€ â€™ Billing Ã¢â€ â€™ Subscriptions Ã¢â€ â€™ Trial reminder)
     // -------------------------------------------------------------------------
     case 'customer.subscription.trial_will_end': {
       // Activate the subscriber (trial converts to paid)
@@ -116,7 +116,7 @@ async function handleEvent(event) {
     }
 
     // -------------------------------------------------------------------------
-    // Subscription updated — handle trial→active conversion
+    // Subscription updated Ã¢â‚¬â€ handle trialÃ¢â€ â€™active conversion
     // -------------------------------------------------------------------------
     case 'customer.subscription.updated': {
       const sub = event.data.object;
@@ -128,7 +128,7 @@ async function handleEvent(event) {
     }
 
     // -------------------------------------------------------------------------
-    // Payment failed — start 7-day grace period, warn customer
+    // Payment failed Ã¢â‚¬â€ start 7-day grace period, warn customer
     // -------------------------------------------------------------------------
     case 'invoice.payment_failed': {
       const invoice        = event.data.object;
@@ -139,7 +139,7 @@ async function handleEvent(event) {
 
       await db.startGracePeriod(subscriptionId);
 
-      // Look up email to send warning — fetch from Stripe (not stored in log)
+      // Look up email to send warning Ã¢â‚¬â€ fetch from Stripe (not stored in log)
       const stripeCustomer = await stripe.customers.retrieve(customerId);
       const customerEmail  = stripeCustomer.email;
       const gracePeriodUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -158,7 +158,7 @@ async function handleEvent(event) {
     }
 
     // -------------------------------------------------------------------------
-    // Payment succeeded — clear any active grace period
+    // Payment succeeded Ã¢â‚¬â€ clear any active grace period
     // -------------------------------------------------------------------------
     case 'invoice.payment_succeeded': {
       const invoice        = event.data.object;
@@ -171,8 +171,8 @@ async function handleEvent(event) {
     }
 
     // -------------------------------------------------------------------------
-    // Subscription cancelled — deactivate immediately
-    // Founder Cohort: loses locked rate on cancellation (by design, per ToS §6.8)
+    // Subscription cancelled Ã¢â‚¬â€ deactivate immediately
+    // Founder Cohort: loses locked rate on cancellation (by design, per ToS Ã‚Â§6.8)
     // -------------------------------------------------------------------------
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
@@ -182,13 +182,13 @@ async function handleEvent(event) {
     }
 
     default:
-      // Unhandled event types — not an error, Stripe sends many event types
+      // Unhandled event types Ã¢â‚¬â€ not an error, Stripe sends many event types
       break;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Checkout session creation — GET /checkout?plan=<lookup_key>
+// Checkout session creation Ã¢â‚¬â€ GET /checkout?plan=<lookup_key>
 // Creates a Stripe Checkout session and redirects to the hosted payment page.
 // ---------------------------------------------------------------------------
 const ALLOWED_PLANS = new Set([
@@ -232,7 +232,28 @@ app.get('/checkout', async (req, res) => {
 // ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Token validation -- GET /validate?token=<license_token>
+// Called by local-terminal-mcp on startup to verify subscription status.
+// Returns 200 { valid, status, plan } or 401 { valid: false, reason }.
+// ---------------------------------------------------------------------------
+app.get('/validate', async (req, res) => {
+  const token = req.query.token;
+  if (!token || typeof token !== 'string' || token.length < 16) {
+    return res.status(400).json({ valid: false, reason: 'Missing or malformed token' });
+  }
+  try {
+    const result = await db.validateToken(token);
+    return result.valid
+      ? res.json(result)
+      : res.status(401).json(result);
+  } catch (err) {
+    console.error('[validate] Internal error:', err.message);
+    return res.status(500).json({ valid: false, reason: 'Validation temporarily unavailable' });
+  }
+});
 app.listen(PORT, '127.0.0.1', () => {
-  // Bind to localhost only — nginx handles public TLS termination
+  // Bind to localhost only Ã¢â‚¬â€ nginx handles public TLS termination
   console.log(`[forgerift-payments] Listening on 127.0.0.1:${PORT}`);
 });
