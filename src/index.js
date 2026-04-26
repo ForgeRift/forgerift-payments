@@ -188,6 +188,48 @@ async function handleEvent(event) {
 }
 
 // ---------------------------------------------------------------------------
+// Checkout session creation — GET /checkout?plan=<lookup_key>
+// Creates a Stripe Checkout session and redirects to the hosted payment page.
+// ---------------------------------------------------------------------------
+const ALLOWED_PLANS = new Set([
+  'vps-monthly', 'vps-annual', 'vps-founder-monthly',
+  'lt-monthly', 'lt-annual', 'lt-founder-monthly',
+  'bundle-monthly', 'bundle-annual', 'bundle-founder-monthly',
+]);
+
+app.get('/checkout', async (req, res) => {
+  const lookupKey = req.query.plan;
+
+  if (!lookupKey || !ALLOWED_PLANS.has(lookupKey)) {
+    return res.status(400).send('Invalid or missing plan parameter.');
+  }
+
+  try {
+    const prices = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1, active: true });
+    if (!prices.data.length) {
+      console.error(`[checkout] No active price found for lookup_key: ${lookupKey}`);
+      return res.status(404).send('Plan not available.');
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: prices.data[0].id, quantity: 1 }],
+      subscription_data: {
+        trial_period_days: 14,
+      },
+      allow_promotion_codes: true,
+      success_url: 'https://forgerift.io/?checkout=success',
+      cancel_url: 'https://forgerift.io/#pricing',
+    });
+
+    res.redirect(303, session.url);
+  } catch (err) {
+    console.error('[checkout] Session creation error:', err.message);
+    res.status(500).send('Checkout temporarily unavailable. Please try again.');
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
 app.listen(PORT, '127.0.0.1', () => {
