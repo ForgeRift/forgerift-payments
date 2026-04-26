@@ -180,4 +180,5 @@ module.exports = {
   activateSubscriber,
   deactivateSubscriber,
   getSubscriberByEmail,
+  validateToken,
 };
